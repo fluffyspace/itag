@@ -40,10 +40,12 @@ class BLEConnectionDefault implements BLEConnectionInterface {
     private final ChannelDistinct<Integer> rssiChannel = new ChannelDistinct<>(-999);
     BLEConnectionState oldState = null;
 
+    private final Boolean debug;
+
     @Override
     public boolean isConnected() {
         synchronized (peripheral) {
-            if (BuildConfig.DEBUG) {
+            if (debug) {
                 if (peripheral[0] == null) {
                     Log.d(LT, "peripheral[0] is null");
                 } else {
@@ -57,14 +59,15 @@ class BLEConnectionDefault implements BLEConnectionInterface {
     private final ClickHandler clickHandler = new ClickHandler();
 
     BLEConnectionDefault(@NonNull BLECentralManagerInterface manager,
-                         @NonNull String id) {
+                         @NonNull String id, Boolean debug) {
         this.id = id;
         this.manager = manager;
+        this.debug = debug;
     }
 
     BLEConnectionDefault(@NonNull BLECentralManagerInterface manager,
-                         @NonNull BLEPeripheralInterace peripheral) {
-        this(manager, peripheral.identifier());
+                         @NonNull BLEPeripheralInterace peripheral, Boolean debug) {
+        this(manager, peripheral.identifier(), debug);
         setPeripheral(peripheral);
     }
 
@@ -112,7 +115,7 @@ class BLEConnectionDefault implements BLEConnectionInterface {
     }
 
     private void setPeripheral(@Nullable BLEPeripheralInterace peripheral) {
-        if (BuildConfig.DEBUG) {
+        if (debug) {
             Log.d("LT", "setPeripheral id=" + id + " peripheral=" + (peripheral == null ? "null" : peripheral.identifier()));
             if (peripheral == null) {
                 Log.d("LT", "setPeripheral id=" + id + " peripheral=null");
@@ -161,25 +164,25 @@ class BLEConnectionDefault implements BLEConnectionInterface {
             scan = true;
             // scan for not cached/not known peripheral
             // endlessly if timeout = 0
-            if (BuildConfig.DEBUG) Log.d(LT,
+            if (debug) Log.d(LT,
                     "Attempt to scan for device, peripheral=null:" +
                             (peripheral() == null ? "yes" : "no") + " cached=" +
                             (peripheral() != null && peripheral().cached()));
             BLEError error = waitForScan();
             // waitForScan will set the peripheral if can
             if (peripheral() == null) {
-                if (BuildConfig.DEBUG) Log.d(LT, "Scan failed no peripheral, will abort");
+                if (debug) Log.d(LT, "Scan failed no peripheral, will abort");
                 return BLEError.ok.equals(error) ? BLEError.noPeripheral : error;
             } else {
-                if (BuildConfig.DEBUG) Log.d(LT, "Scan got peripheral, will connect");
+                if (debug) Log.d(LT, "Scan got peripheral, will connect");
             }
         }
 
         // connect as soon as a peripheral scanned
-        if (BuildConfig.DEBUG) Log.d(LT, "Attempt to connect. Scan run: " + (scan ? "yes" : "no"));
-        BLEError error = waitForConnect(); // TODO: don't connect if in passive mode
+        if (debug) Log.d(LT, "Attempt to connect. Scan run: " + (scan ? "yes" : "no"));
+        BLEError error = waitForConnect();
         if (!BLEError.ok.equals(error) || !isConnected()) {
-            if (BuildConfig.DEBUG) Log.d(LT, "Attempt to connect failed");
+            if (debug) Log.d(LT, "Attempt to connect failed");
             stateChannel.broadcast(BLEConnectionState.disconnected);
             return error;
         }
@@ -189,7 +192,7 @@ class BLEConnectionDefault implements BLEConnectionInterface {
         }
 
         startObserve();
-        if (BuildConfig.DEBUG) Log.d(LT, "Connected");
+        if (debug) Log.d(LT, "Connected");
         stateChannel.broadcast(BLEConnectionState.connected);
         return BLEError.ok;
 // TODO: check for isConencted?
@@ -292,7 +295,7 @@ class BLEConnectionDefault implements BLEConnectionInterface {
                                 .subscribe((event) -> monitorConnect.setPayload(event.status)
                                 )
                 );
-                if (BuildConfig.DEBUG) {
+                if (debug) {
                     Log.d(LT, "Start wait for connect " + Thread.currentThread().getName());
                 }
                 monitorConnect.waitFor(() -> peripheral().connect(), 0);
@@ -356,13 +359,13 @@ class BLEConnectionDefault implements BLEConnectionInterface {
 
             monitorDiscovery.waitFor(() -> peripheral().discoveryServices(), 15);
             if (monitorDiscovery.isTimedOut()) {
-                if (BuildConfig.DEBUG) {
+                if (debug) {
                     Log.d(LT, "waitForConnect timeout id=" + id + " timed out");
                 }
                 return BLEError.timeout;
             }
             lastStatus = monitorDiscovery.payload();
-            if (BuildConfig.DEBUG) {
+            if (debug) {
                 Log.d(LT, "waitForConnect completed id=" + id + " lastStatus=" + lastStatus);
             }
             return lastStatus == GATT_SUCCESS ? BLEError.ok : BLEError.badStatus;
@@ -454,7 +457,7 @@ class BLEConnectionDefault implements BLEConnectionInterface {
             e.printStackTrace();
         }
 */
-        if (BuildConfig.DEBUG) {
+        if (debug) {
             Log.d(LT, "disconnect, wait: " + (timeoutSec <= 0 ? "no" : timeoutSec));
         }
 
@@ -525,7 +528,7 @@ class BLEConnectionDefault implements BLEConnectionInterface {
             return BLEError.noImmediateAlertCharacteristic;
         }
         BLEError error = writeInt8(characteristic, volume.value, timeout);
-        if (BuildConfig.DEBUG) {
+        if (debug) {
             Log.d(LT, "writeImmediateAlert error=" + error);
         }
         return error;

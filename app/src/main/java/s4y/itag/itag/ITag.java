@@ -146,7 +146,6 @@ public class ITag {
                 disposablesConnections.add(connection.observableState().subscribe(event -> {
                             if (BuildConfig.DEBUG)
                                 Log.d(LT, "connection " + connection.id() + " state " + connection.state());
-                            Log.e("ingo", "state = " + connection.state() + ", old state = " + connection.oldState());
                             if(connection.state() == connection.oldState()){
                                 return;
                             }
@@ -158,7 +157,6 @@ public class ITag {
                                 return;
                             }
                             connection.setOldState(connection.state());
-                            Log.d("ingo", "alert mode " + itag.alertMode());
                             if ((itag.alertMode() == TagAlertMode.alertOnDisconnect || itag.alertMode() == TagAlertMode.alertOnBoth) && BLEConnectionState.disconnected.equals(connection.state())) {
                                 if (itag.alertDelay() == 0) {
                                     if (BuildConfig.DEBUG)
@@ -183,14 +181,9 @@ public class ITag {
                             } else if (BLEConnectionState.connected.equals(connection.state())) {
                                 if (BuildConfig.DEBUG)
                                     Log.d(LT, "connection " + connection.id() + " restored");
-                                // TODO: play sound if connection restore alert is enabled
                                 if((itag.alertMode() == TagAlertMode.alertOnConnect || itag.alertMode() == TagAlertMode.alertOnBoth)){
                                     alertUser(itag, false);
-                                }/* else {
-                                    stopSound();
-                                    cancelDisconnectNotification(ITagApplication.context);
-                                    HistoryRecord.clear(ITagApplication.context, itag.id());
-                                }*/
+                                }
                             }
                         }
                 ));

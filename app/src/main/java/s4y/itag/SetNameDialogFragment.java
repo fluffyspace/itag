@@ -41,9 +41,7 @@ public class SetNameDialogFragment extends DialogFragment {
                 R.array.itag_alarm_delays,
                 android.R.layout.simple_spinner_item
         );
-        // Specify the layout to use when the list of choices appears.
         alarmDelayAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        // Apply the adapter to the spinner.
         alarmDelaySpinner.setAdapter(alarmDelayAdapter);
 
         final Spinner alarmModeSpinner = view.findViewById(R.id.alarm_mode_spinner);
@@ -52,9 +50,7 @@ public class SetNameDialogFragment extends DialogFragment {
                 R.array.itag_alarm_modes,
                 android.R.layout.simple_spinner_item
         );
-        // Specify the layout to use when the list of choices appears.
         alarmModeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        // Apply the adapter to the spinner.
         alarmModeSpinner.setAdapter(alarmModeAdapter);
 
         TagAlertMode alertMode = iTag.alertMode();
@@ -73,36 +69,14 @@ public class SetNameDialogFragment extends DialogFragment {
                 break;
         }
 
-        // TODO: passive mode would let the phone detect iTag without connecting to it
-        /*final Spinner connectionModeSpinner = view.findViewById(R.id.connection_mode_spinner);
-        ArrayAdapter<CharSequence> connectionModeAdapter = ArrayAdapter.createFromResource(
-                requireContext(),
-                R.array.itag_connection_modes,
-                android.R.layout.simple_spinner_item
-        );
-        // Specify the layout to use when the list of choices appears.
-        connectionModeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        // Apply the adapter to the spinner.
-        connectionModeSpinner.setAdapter(connectionModeAdapter);
-
-        TagConnectionMode connectionMode = iTag.connectionMode();
-        switch(connectionMode){
-            case connect:
-                connectionModeSpinner.setSelection(0);
-                break;
-            case dontConnect:
-                connectionModeSpinner.setSelection(1);
-                break;
-        }*/
-
-        int alarm =iTag.alertDelay();
-        if (alarm<3) {
+        int alarm = iTag.alertDelay();
+        if (alarm < 3) {
             alarmDelaySpinner.setSelection(0);
-        }else if (alarm < 5){
+        } else if (alarm < 5) {
             alarmDelaySpinner.setSelection(1);
-        }else if (alarm <10) {
+        } else if (alarm < 10) {
             alarmDelaySpinner.setSelection(2);
-        }else {
+        } else {
             alarmDelaySpinner.setSelection(3);
         }
 
@@ -128,15 +102,6 @@ public class SetNameDialogFragment extends DialogFragment {
                             ITag.store.setAlertDelay(iTag.id(), 10);
                             break;
                     }
-                    // TODO: passive vs active mode
-                    /*switch (connectionModeSpinner.getSelectedItemPosition()) {
-                        case 0:
-                            ITag.store.setConnectionMode(iTag.id(), TagConnectionMode.connect);
-                            break;
-                        case 1:
-                            ITag.store.setConnectionMode(iTag.id(), TagConnectionMode.dontConnect);
-                            break;
-                    }*/
                     switch (alarmModeSpinner.getSelectedItemPosition()) {
                         case 0:
                             ITag.store.setAlertMode(iTag.id(), TagAlertMode.noAlarm);

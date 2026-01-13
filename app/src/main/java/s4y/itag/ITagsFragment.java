@@ -1,7 +1,6 @@
 package s4y.itag;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Build;
@@ -20,7 +19,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
-import androidx.preference.PreferenceManager;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,21 +29,14 @@ import s4y.itag.ble.BLEState;
 import s4y.itag.history.HistoryRecord;
 import s4y.itag.itag.ITag;
 import s4y.itag.itag.ITagInterface;
+import s4y.itag.preference.WayTodayDisabled0Preference;
 import s4y.itag.preference.VolumePreference;
-import s4y.itag.waytoday.Waytoday;
+import s4y.itag.waytoday.WayToday;
 import solutions.s4y.rasat.DisposableBag;
-import solutions.s4y.waytoday.sdk.id.ITrackIDChangeListener;
-import solutions.s4y.waytoday.sdk.id.TrackIDJobService;
-import solutions.s4y.waytoday.sdk.tracker.ITrackingStateListener;
-import solutions.s4y.waytoday.sdk.tracker.TrackerState;
 
 import static s4y.itag.itag.ITag.ble;
 
-public class ITagsFragment extends Fragment
-        implements
-        HistoryRecord.HistoryRecordListener,
-        ITrackingStateListener,
-        ITrackIDChangeListener {
+public class ITagsFragment extends Fragment implements HistoryRecord.HistoryRecordListener {
     private static final String LT = ITagsFragment.class.getName();
     private Animation mLocationAnimation;
     private Animation mITagAnimationShakeIndefinitely;
@@ -146,9 +137,10 @@ public class ITagsFragment extends Fragment
             Log.e(LT, "no waytoday imageview", new Exception("no waytoday imagegview"));
             return;
         }
-        if (BuildConfig.DEBUG)
-            Log.d(LT, "updateWayToday, updating=" + Waytoday.tracker.isUpdating + " trackID=" + trackID);
-        if (Waytoday.tracker.isUpdating && !"".equals(trackID)) {
+        if (WayToday.getInstance().isTrackingOn() && WayToday.getInstance().wtClient.hasTrackerId()) {
+            String trackID = WayToday.getInstance().wtClient.getCurrentTrackerId();
+            if (BuildConfig.DEBUG)
+                Log.d(LT, "updateWayToday, updating=" + WayToday.getInstance().isTrackingOn() + " trackID=" + trackID);
             waytoday.setVisibility(View.VISIBLE);
             TextView wtid = waytoday.findViewById(R.id.text_wt_id);
             wtid.setText(trackID);
@@ -249,11 +241,8 @@ public class ITagsFragment extends Fragment
                     statusDrawableId = R.drawable.bt_setup;
                     statusDrawableTint = Color.parseColor("#FFA500"); // orange
                     if (state == BLEConnectionState.connecting) {
-                        Log.d("ingo", "it's connecting2");
                         statusTextId = R.string.bt_connecting;
-                    }
-                    else {
-                        Log.d("ingo", "it's disconnecting");
+                    } else {
                         statusTextId = R.string.bt_disconnecting;
                     }
                     break;
@@ -358,14 +347,14 @@ public class ITagsFragment extends Fragment
         if (BuildConfig.DEBUG) {
             Log.d(LT, "updateITagImageAnimation isFindMe:" + connection.isFindMe() +
                     " isAlerting:" + connection.isAlerting() +
-                    " isAlertDisconnected:" + itag.isConnectModeEnabled() +
+                    " isConnectModeEnabled:" + itag.isConnectModeEnabled() +
                     " not connected:" + !connection.isConnected()
             );
         }
         if (connection.isAlerting() ||
                 itag.isShaking() ||
                 connection.isFindMe()) {
-                animShake = mITagAnimationShakeIndefinitely;//AnimationUtils.loadAnimation(getActivity(), R.anim.shake_itag);
+            animShake = mITagAnimationShakeIndefinitely;
         }
         if(connection.observableClick().value() == 1){
             animShake = mITagAnimationShakeOnce;
@@ -381,7 +370,7 @@ public class ITagsFragment extends Fragment
         });
         imageITag.setOnLongClickListener(view -> {
             if(connection.state() == BLEConnectionState.connected || connection.state() == BLEConnectionState.connecting) {
-                ITag.store.setReconnectMode(itag.id(), false); // TODO: check if this is wanted behaviour - if we manually disconnect from device, it sets reconnect to OFF
+                ITag.store.setReconnectMode(itag.id(), false);
                 new Thread(connection::disconnect).start();
             } else if(connection.state() == BLEConnectionState.disconnected) {
                 ITag.store.setShakingOnConnectDisconnect(itag.id(), false);
@@ -465,18 +454,12 @@ public class ITagsFragment extends Fragment
     }
 
     @Override
-    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         // Inflate the layout for this fragment
 
         mLocationAnimation = AnimationUtils.loadAnimation(getActivity(), R.anim.shadow_location);
         mITagAnimationShakeIndefinitely = AnimationUtils.loadAnimation(getActivity(), R.anim.shake_itag_indefinitely);
         mITagAnimationShakeOnce = AnimationUtils.loadAnimation(getActivity(), R.anim.shake_itag_once);
-        Context context = getContext();
-        if (context != null) {
-            SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
-            trackID = sp.getString("tid", "");
-        }
 
         final VolumePreference mute = new VolumePreference(getContext());
         View root = inflater.inflate(R.layout.fragment_itags, container, false);
@@ -485,12 +468,7 @@ public class ITagsFragment extends Fragment
             setupTags(realRoot);
             final ImageView imgMute = root.findViewById(R.id.btn_mute);
             int m = mute.get();
-            imgMute.setImageResource(
-                    m == VolumePreference.MUTE
-                            ? R.drawable.mute
-                            : m == VolumePreference.LOUD
-                            ? R.drawable.nomute
-                            : R.drawable.vibration);
+            imgMute.setImageResource(m == VolumePreference.MUTE ? R.drawable.mute : m == VolumePreference.LOUD ? R.drawable.nomute : R.drawable.vibration);
             imgMute.setOnClickListener(v -> {
                 int volume = mute.get();
                 volume++;
@@ -498,18 +476,9 @@ public class ITagsFragment extends Fragment
                     volume = 0;
                 }
                 mute.set(volume);
-                imgMute.setImageResource(
-                        volume == VolumePreference.MUTE
-                                ? R.drawable.mute
-                                : volume == VolumePreference.LOUD
-                                ? R.drawable.nomute
-                                : R.drawable.vibration);
+                imgMute.setImageResource(volume == VolumePreference.MUTE ? R.drawable.mute : volume == VolumePreference.LOUD ? R.drawable.nomute : R.drawable.vibration);
 
-                int toastId = volume == VolumePreference.MUTE
-                        ? R.string.soundmode_off
-                        : volume == VolumePreference.LOUD
-                        ? R.string.soundmode_on
-                        : R.string.soundmode_vibration;
+                int toastId = volume == VolumePreference.MUTE ? R.string.soundmode_off : volume == VolumePreference.LOUD ? R.string.soundmode_on : R.string.soundmode_vibration;
                 Toast.makeText(getContext(), toastId, Toast.LENGTH_SHORT).show();
             });
         }
@@ -556,8 +525,7 @@ public class ITagsFragment extends Fragment
             Log.d(LT, "onResume");
         }
         Activity activity = getActivity();
-        if (activity == null)
-            return;
+        if (activity == null) return;
         ITagApplication.faITagsView(ITag.store.count());
 
         disposableBag.add(ITag.store.observable().subscribe(event -> {
@@ -595,14 +563,18 @@ public class ITagsFragment extends Fragment
         }
         HistoryRecord.addListener(this);
 
-        final SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getActivity());
-        boolean wt_disabled = sp.getBoolean("wt_disabled0", false);
-        if (wt_disabled) {
+        boolean wt_disabled0 = WayTodayDisabled0Preference.get(getActivity());
+        if (wt_disabled0) {
             ViewGroup root = (ViewGroup) requireView();
             root.findViewById(R.id.btn_waytoday).setVisibility(View.GONE);
         } else {
-            Waytoday.tracker.addOnTrackingStateListener(this);
-            TrackIDJobService.addOnTrackIDChangeListener(this);
+            disposableBag.add(
+                    WayToday.getTrackIdObservable()
+                            .subscribe(trackID -> activity.runOnUiThread(this::updateWayToday)));
+            disposableBag.add(
+                    WayToday
+                            .getGpsStatusObservable()
+                            .subscribe(status -> getActivity().runOnUiThread(this::updateWayToday)));
         }
         startRssi();
     }
@@ -615,39 +587,14 @@ public class ITagsFragment extends Fragment
         stopRssi();
         HistoryRecord.removeListener(this);
         disposableBag.dispose();
-        Waytoday.tracker.removeOnTrackingStateListener(this);
-        TrackIDJobService.removeOnTrackIDChangeListener(this);
         super.onPause();
     }
 
     @Override
     public void onHistoryRecordChange() {
         Activity activity = getActivity();
-        if (activity == null)
-            return;
+        if (activity == null) return;
         Log.d(LT, "onHistoryRecordChange");
         activity.runOnUiThread(this::updateLocationImages);
-    }
-
-    @Override
-    public void onStateChange(@NonNull TrackerState state) {
-        final View view = getView();
-        if (view != null) {
-            Activity activity = getActivity();
-            if (activity == null)
-                return;
-
-            activity.runOnUiThread(this::updateWayToday);
-        }
-    }
-
-    @Override
-    public void onTrackID(@NonNull String trackID) {
-        if (BuildConfig.DEBUG) Log.d(LT, "onTrackID: " + trackID);
-        this.trackID = trackID;
-        Activity activity = getActivity();
-        if (activity == null)
-            return;
-        activity.runOnUiThread(this::updateWayToday);
     }
 }

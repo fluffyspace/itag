@@ -38,7 +38,6 @@ private static final long serialVersionUID = 1575220516;
         this.reconnect = reconnect == null || reconnect;
         this.alertMode = alertMode == null ? TagAlertMode.alertOnDisconnect : alertMode;
         this.connectionMode = connectionMode == null ? TagConnectionMode.active : connectionMode;
-        Log.d("ingo", "we set mode to " + alertMode);
         this.alertDelay = alertDelay == null ? 5: alertDelay;
     }
 

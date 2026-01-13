@@ -73,9 +73,9 @@
     <string name="waytoday">WayToday</string>
     <string name="trackid">WayToday ID:</string>
     <string name="wt_new_id">Cambiar ID</string>
-    <string name="wt_share">Comparte ubicacion</string>
+    <string name="wt_share">Comparte ubicación</string>
     <string name="wt_map">Mostrar en el mapa</string>
-    <string name="share_title">Compartir via…</string>
+    <string name="share_title">Compartir vía…</string>
     <string name="share_link"><![CDATA[Rastrea mi ubicación haciendo clic en https://way.today/#%1$s!30m o usa el ID%1$s en el sitio https://way.today]]></string>
     <string name="share_subj">Nota de ubicación de WayToday</string>
     <string name="about_ok">Instalar WayToday</string>
@@ -95,4 +95,10 @@
     <string name="soundmode_off">Ninguna alarma</string>
     <string name="mode_passive">Modo buscador de claves</string>
     <string name="mode_active">Modo de alarma perdido</string>
+    <string name="mode_keyfinder">Modo buscador de claves</string>
+    <string name="mode_alertdisconnect">Modo de alarma perdido</string>
+    <string name="wt_tracking_stopped">Seguimiento de WayToday detenido</string>
+    <string name="gps_permissions_off">Incapaz de obtener la posición actual debido a la falta de permisos de ubicación</string>
+    <string name="gps_permission_request">Se requiere permiso para determinar la ubicación actual en caso de pérdida de conexión</string>
+    <string name="gps_background_permission_request">Se necesita acceso a la ubicación en segundo plano para actualizaciones continuas y seguimiento automático al iniciar.</string>
 </resources>

@@ -1,18 +1,29 @@
 package s4y.itag.history;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+
+import com.google.android.gms.location.CurrentLocationRequest;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.Granularity;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
+import com.google.android.gms.tasks.CancellationTokenSource;
+import com.google.android.gms.tasks.Task;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -23,6 +34,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import s4y.gps.sdk.GPSCurrentPositionManager;
+import s4y.gps.sdk.android.GPSPermissionManager;
+import s4y.gps.sdk.android.implementation.FusedGPSCurrentPositionProvider;
 import s4y.itag.BuildConfig;
 import s4y.itag.ITagApplication;
 import s4y.itag.R;
@@ -34,10 +48,10 @@ public final class HistoryRecord implements Serializable {
     private static final long serialVersionUID = 1845673754412L;
     private static final String LT = HistoryRecord.class.getName();
 
-    public String addr;
-    public Double latitude;
-    public Double longitude;
-    public long ts;
+    public final String addr;
+    public final Double latitude;
+    public final Double longitude;
+    public final long ts;
 
     public interface HistoryRecordListener {
         void onHistoryRecordChange();
@@ -91,7 +105,7 @@ public final class HistoryRecord implements Serializable {
     }
 
     private static void save(Context context) {
-        if (records == null || records.size() <= 0) {
+        if (records == null || records.size() == 0) {
             try {
                 //noinspection ResultOfMethodCallIgnored
                 getDbFile(context).delete();
@@ -107,9 +121,6 @@ public final class HistoryRecord implements Serializable {
             rl.addAll(records.values());
             oos.writeObject(rl);
             oos.close();
-        } catch (FileNotFoundException e) {
-            ITagApplication.handleError(e, true);
-            e.printStackTrace();
         } catch (IOException e) {
             ITagApplication.handleError(e, true);
             e.printStackTrace();
@@ -135,13 +146,18 @@ public final class HistoryRecord implements Serializable {
 
     public static void add(final Context context, String id) {
 
-        final String addr = id;
         final LocationManager locationManager = (LocationManager) context
                 .getSystemService(Context.LOCATION_SERVICE);
 
         if (locationManager == null) return;
 
-        boolean isGPSEnabled = locationManager
+        boolean gpsPermitted = ActivityCompat
+                .checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED
+                &&
+                ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION)
+                        != PackageManager.PERMISSION_GRANTED;
+        boolean isGPSEnabled = gpsPermitted && locationManager
                 .isProviderEnabled(LocationManager.GPS_PROVIDER);
 
         boolean isNetworkEnabled = locationManager
@@ -156,14 +172,14 @@ public final class HistoryRecord implements Serializable {
                         .getLastKnownLocation(LocationManager.GPS_PROVIDER);
                 if (location != null) {
                     if (BuildConfig.DEBUG) {
-                        if (location == null) {
-                            Log.d(LT, "can't getLastKnownLocation from GPS. id:" + id);
-                        } else {
-                            Log.d(LT, "getLastKnownLocation from GPS in " + (System.currentTimeMillis() - location.getTime()) / 1000 + "sec. id:" + id);
-                        }
+                        Log.d(LT, "getLastKnownLocation from GPS in " + (System.currentTimeMillis() - location.getTime()) / 1000 + "sec. id:" + id);
                     }
-                    add(context, new HistoryRecord(addr, location, System.currentTimeMillis()));
+                    add(context, new HistoryRecord(id, location, System.currentTimeMillis()));
                     gotBestLocation = System.currentTimeMillis() - location.getTime() > 30000;
+                } else {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(LT, "can't getLastKnownLocation from GPS. id:" + id);
+                    }
                 }
             } catch (SecurityException e) {
                 ITagApplication.handleError(e);
@@ -176,7 +192,7 @@ public final class HistoryRecord implements Serializable {
                         .getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
                 if (networklocation != null) {
                     if (location == null || location.getTime() < System.currentTimeMillis() - 30000)
-                        add(context, new HistoryRecord(addr, networklocation, System.currentTimeMillis()));
+                        add(context, new HistoryRecord(id, networklocation, System.currentTimeMillis()));
                 }
                 if (BuildConfig.DEBUG) {
                     if (location == null) {
@@ -190,16 +206,16 @@ public final class HistoryRecord implements Serializable {
             }
         }
 
-        if (isGPSEnabled && !sLocationListeners.containsKey(addr)) {
+        if (isGPSEnabled && !sLocationListeners.containsKey(id)) {
             LocationListener locationListener =
-                    new HistoryLocationListener(context, locationManager, addr);
+                    new HistoryLocationListener(context, locationManager, id);
 
             try {
                 Log.d(LT, "will request GPS location id:" + id);
                 locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER, 1, 1, locationListener, Looper.getMainLooper());
-                if (BuildConfig.DEBUG) Log.d(LT, "GPS requestLocationUpdates " + addr);
-                sLocationListeners.put(addr, locationListener);
+                if (BuildConfig.DEBUG) Log.d(LT, "GPS requestLocationUpdates " + id);
+                sLocationListeners.put(id, locationListener);
                 ITagApplication.faIssuedGpsRequest();
             } catch (SecurityException e) {
                 ITagApplication.handleError(e, R.string.can_not_get_gps_location);
@@ -266,12 +282,12 @@ public final class HistoryRecord implements Serializable {
         }
 
         @Override
-        public void onProviderEnabled(String provider) {
+        public void onProviderEnabled(@NonNull String provider) {
 
         }
 
         @Override
-        public void onProviderDisabled(String provider) {
+        public void onProviderDisabled(@NonNull String provider) {
 
         }
     }
@@ -316,6 +332,7 @@ public final class HistoryRecord implements Serializable {
             Object read = ois.readObject();
 
             if (read instanceof List) {
+                //noinspection rawtypes
                 List rr = (List) read;
                 records.clear();
                 for (Object r : rr) {
@@ -325,13 +342,7 @@ public final class HistoryRecord implements Serializable {
                 }
             }
             ois.close();
-        } catch (FileNotFoundException e) {
-            ITagApplication.handleError(e, true);
-            e.printStackTrace();
-        } catch (IOException e) {
-            ITagApplication.handleError(e, true);
-            e.printStackTrace();
-        } catch (ClassNotFoundException e) {
+        } catch (IOException | ClassNotFoundException e) {
             ITagApplication.handleError(e, true);
             e.printStackTrace();
         }

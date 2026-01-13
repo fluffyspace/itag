@@ -127,7 +127,7 @@ public class ITagsService extends Service {
         return START_NOT_STICKY;
     }
 
-    public void putInForeground() {
+    private void putInForeground() {
         if (inForeground) {
             return;
         }
@@ -173,7 +173,7 @@ public class ITagsService extends Service {
         PendingIntent pendingIntent =
                 stackBuilder.getPendingIntent(
                         0,
-                        PendingIntent.FLAG_UPDATE_CURRENT
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE
                 );
         builder.setContentIntent(pendingIntent);
         return builder.build();

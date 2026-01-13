@@ -25,3 +25,5 @@ itag-fastlane-api.json
 session.vim
 .idea/
 waytoday/src/main/java/s4y/waytoday/wsse/Secret.java
+.session.vim
+*.keystore

@@ -10,7 +10,6 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -28,13 +27,15 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
-import androidx.preference.PreferenceManager;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
+import s4y.gps.sdk.android.GPSPermissionManager;
+import s4y.gps.sdk.android.GPSPowerManager;
+import s4y.gps.sdk.android.GPSUpdatesForegroundService;
 import s4y.itag.ble.AlertVolume;
 import s4y.itag.ble.BLEConnectionInterface;
 import s4y.itag.ble.BLEConnectionState;
@@ -44,17 +45,15 @@ import s4y.itag.itag.ITag;
 import s4y.itag.itag.ITagInterface;
 import s4y.itag.itag.TagColor;
 import s4y.itag.itag.TagConnectionMode;
-import s4y.itag.waytoday.Waytoday;
+import s4y.itag.preference.WayTodayDisabled0Preference;
+import s4y.itag.preference.WayTodayFirstPreference;
+import s4y.itag.waytoday.WayToday;
 import solutions.s4y.rasat.DisposableBag;
-import solutions.s4y.waytoday.sdk.errors.ErrorsObservable;
-import solutions.s4y.waytoday.sdk.id.TrackIDJobService;
-import solutions.s4y.waytoday.sdk.locations.IPermissionListener;
-import solutions.s4y.waytoday.sdk.permissionmanagement.PermissionHandling;
-import solutions.s4y.waytoday.sdk.powermanagement.PowerManagement;
 
 public class MainActivity extends FragmentActivity {
+    private static final int REQUEST_CODE_NOTIFICATION_PERMISSION = 123;
     static public final int REQUEST_ENABLE_BT = 1;
-    static public final int REQUEST_ENABLE_LOCATION = 2;
+    static public final int REQUEST_ONSCAN = 2;
     public ITagsService iTagsService;
     public static boolean sIsShown = false;
     private static final String LT = MainActivity.class.getName();
@@ -65,16 +64,24 @@ public class MainActivity extends FragmentActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Log.d("ingo", "onCreate");
         checkForPermissions();
         setupContent();
         checkIfPassiveScannerShouldTurnOn();
-        /*
-        // ATTENTION: This was auto-generated to handle app linksI
-        Intent appLinkIntent = getIntent();
-        String appLinkAction = appLinkIntent.getAction();
-        Uri appLinkData = appLinkIntent.getData();
-        */
+        if (WayToday.getInstance().isTrackingOn() && !GPSPermissionManager.needPermissionRequest(this, true)) {
+            GPSUpdatesForegroundService.start(this);
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent != null) {
+            String gpsNotification = intent.getStringExtra(GPSUpdatesForegroundService.GPS_SERVICE_NOTIFICATION);
+            if (Objects.equals(gpsNotification, GPSUpdatesForegroundService.ACTION_STOP_TRACKING)) {
+                WayToday.getInstance().turnTrackingOff();
+                Toast.makeText(this, R.string.wt_tracking_stopped, Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void setupProgressBar() {
@@ -115,33 +122,32 @@ public class MainActivity extends FragmentActivity {
 
     private final ITagServiceConnection mServiceConnection = new ITagServiceConnection();
 
+    /*
+    TODO: error handling
     private final ErrorsObservable.IErrorListener mErrorListener = errorNotification -> {
         runOnUiThread(() -> Toast.makeText(MainActivity.this, errorNotification.getMessage(), Toast.LENGTH_LONG).show());
         Log.e(LT, errorNotification.getMessage(), errorNotification.th);
     };
-    private final IPermissionListener gpsPermissionListener = () -> PermissionHandling.requestPermissions(MainActivity.this);
+     */
+    // TODO: private final IPermissionListener gpsPermissionListener = () -> PermissionHandling.requestPermissions(MainActivity.this);
     private int resumeCount = 0;
 
     @Override
     protected void onResume() {
         super.onResume();
-        ErrorsObservable.addErrorListener(mErrorListener);
+        // TODO: ErrorsObservable.addErrorListener(mErrorListener);
         sIsShown = true;
-        Waytoday.gpsLocationUpdater.addOnPermissionListener(gpsPermissionListener);
-        Log.d("ingo", "onresume");
+        setupContent();
         disposableBag.add(ITag.ble.observableState().subscribe(event -> {
-            Log.d("ingo", "disposableBag.add(ITag.ble.observableState().subscribe");
             setupContent();
             checkIfPassiveScannerShouldTurnOn();
         }));
         disposableBag.add(ITag.ble.scanner().observableActive().subscribe(
                 event -> {
-                    Log.d("ingo", "disposableBag.add(ITag.ble.scanner().observableActive().subscribe(");
-                    if (s4y.itag.ble.BuildConfig.DEBUG) {
+                    if (BuildConfig.DEBUG) {
                         Log.d(LT, "ble.scanner activeEvent=" + event + " isScanning=" + ITag.ble.scanner().isScanning() + " thread=" + Thread.currentThread().getName());
                     }
                     setupContent();
-                    Log.d("ingo", "sad setupamo content jer je skener postao aktivan");
                     setupProgressBar();
                 }
         ));
@@ -166,11 +172,18 @@ public class MainActivity extends FragmentActivity {
             }
         }));
         bindService(ITagsService.intentBind(this), mServiceConnection, 0);
-        if (Waytoday.tracker.isOn(this) && PowerManagement.needRequestIgnoreOptimization(this)) {
-            if (resumeCount++ > 1) {
+        // unconditionally stop background service
+        if (WayToday.getInstance().isTrackingOn()) {
+            if (GPSPermissionManager.needPermissionRequest(this, true)) {
                 new Handler(getMainLooper()).post(() ->
-                        PowerManagement.requestIgnoreOptimization(this)
+                        GPSPermissionManager.requestPermissions(this, true)
                 );
+            } else if (GPSPowerManager.needRequestIgnoreOptimization(this)) {
+                if (resumeCount++ > 1) {
+                    new Handler(getMainLooper()).post(() ->
+                            GPSPowerManager.requestIgnoreOptimization(this)
+                    );
+                }
             }
         }
     }
@@ -185,13 +198,19 @@ public class MainActivity extends FragmentActivity {
         Log.d("ingo", "disposeamo bag");
         disposableBag.dispose();
         sIsShown = false;
-        if (ITag.store.isDisconnectAlertOn() || Waytoday.tracker.isUpdating) {
-            ITagsService.start(this);
-        } else {
-            ITagsService.stop(this);
+        if (!exitting) {
+            if (ITag.store.isDisconnectAlert()) {
+                ITagsService.start(this);
+            } else {
+                ITagsService.stop(this);
+            }
+
+            if (WayToday.getInstance().isTrackingOn() && !GPSPermissionManager.needPermissionRequest(this, true)) {
+                GPSUpdatesForegroundService.start(this);
+            }
         }
-        ErrorsObservable.removeErrorListener(mErrorListener);
-        Waytoday.gpsLocationUpdater.removePermissionListener(gpsPermissionListener);
+
+        // TODO: Waytoday.gpsLocationUpdater.removePermissionListener(gpsPermissionListener);
         super.onPause();
     }
 
@@ -203,8 +222,11 @@ public class MainActivity extends FragmentActivity {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus != mHasFocus) {
             mHasFocus = hasFocus;
-            if (mHasFocus && iTagsService != null) {
-                iTagsService.removeFromForeground();
+            if (mHasFocus) {
+                GPSUpdatesForegroundService.removeFromForeground(this);
+                if (iTagsService != null) {
+                    iTagsService.removeFromForeground();
+                }
             }
         }
     }
@@ -216,7 +238,7 @@ public class MainActivity extends FragmentActivity {
     }
 
     private void setupContent() {
-        if (s4y.itag.ble.BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG) {
             Log.d(LT, "setupContent isScanning=" + ITag.ble.scanner().isScanning() + " thread=" + Thread.currentThread().getName());
         }
         Fragment newFragment = null;
@@ -335,6 +357,14 @@ public class MainActivity extends FragmentActivity {
                     String.format(Locale.ENGLISH, getString(R.string.last_seen), ts, unit));
             Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
 
+            try {
+                startActivity(intent);
+            } catch (ActivityNotFoundException e) {
+                ITagApplication.handleError(e);
+                Toast.makeText(this, R.string.no_geo_activity, Toast.LENGTH_LONG).show();
+            }
+
+            /* NOTE: removed because of extra permission, it is not needed, because of Exception above
             PackageManager packageManager = getPackageManager();
             List<ResolveInfo> activities = packageManager.queryIntentActivities(intent, 0);
             boolean isIntentSafe = activities.size() > 0;
@@ -350,6 +380,7 @@ public class MainActivity extends FragmentActivity {
                 ITagApplication.handleError(new Exception("No Activity for geo"));
                 Toast.makeText(this, R.string.no_geo_activity, Toast.LENGTH_LONG).show();
             }
+             */
         }
     }
 
@@ -399,57 +430,78 @@ public class MainActivity extends FragmentActivity {
     }
 
     public void onStartStopScan(View ignored) {
-        if (s4y.itag.ble.BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG) {
             Log.d(LT, "onStartStopScan isScanning=" + ITag.ble.scanner().isScanning() + " thread=" + Thread.currentThread().getName());
         }
         if (newDevicesScanner) {
             newDevicesScanner = false;
             ITag.ble.scanner().stop();
         } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    if (shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                        builder.setMessage(R.string.request_location_permission)
+                                .setTitle(R.string.request_permission_title)
+                                .setPositiveButton(android.R.string.ok,
+                                        (dialog, which) ->
+                                                requestAllPermissions(MainActivity.REQUEST_ONSCAN))
+                                .setNegativeButton(android.R.string.cancel,
+                                        (dialog, which) ->
+                                                dialog.cancel())
+                                .show();
+                    } else {
+                        requestAllPermissions(MainActivity.REQUEST_ONSCAN);
+                    }
+                    return;
+                }
+            }
             newDevicesScanner = true;
-            checkForPermissions();
             ITag.ble.scanner().start(true, ITag.SCAN_TIMEOUT, new String[]{});
-            Log.d("ingo", "scanner started");
             setupContent();
         }
     }
 
     void checkForPermissions(){
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                if (shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
-                    AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                    builder.setMessage(R.string.request_location_permission)
-                            .setTitle(R.string.request_permission_title)
-                            .setPositiveButton(android.R.string.ok, (dialog, which) -> requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, MainActivity.REQUEST_ENABLE_LOCATION))
-                            .setNegativeButton(android.R.string.cancel, (dialog, which) -> dialog.cancel())
-                            .show();
-                } else {
-                    // isScanRequestAbortedBecauseOfPermission=true;
-                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, MainActivity.REQUEST_ENABLE_LOCATION);
-                }
-                return;
+            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                requestAllPermissions(MainActivity.REQUEST_ENABLE_LOCATION);
             }
         }
     }
+
+    private void requestAllPermissions(int code) {
+        ArrayList<String> permissionsList = new ArrayList<>();
+        permissionsList.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            permissionsList.add(Manifest.permission.BLUETOOTH_CONNECT);
+            permissionsList.add(Manifest.permission.BLUETOOTH_SCAN);
+        }
+        String[] permissions = permissionsList.toArray(new String[0]);
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S)
+            ITagApplication.faWtRequestBlePermissions();
+
+        requestPermissions(permissions, code);
+    }
+
+    private Boolean exitting = false;
 
     public void onAppMenu(@NonNull View sender) {
         final PopupMenu popupMenu = new PopupMenu(this, sender);
         popupMenu.inflate(R.menu.app);
         popupMenu.setOnMenuItemClickListener(item -> {
-            //noinspection SwitchStatementWithTooFewBranches
-            switch (item.getItemId()) {
-                case R.id.exit:
-                    ITag.closeApplication();
-                    Waytoday.stop(this);
-                    ITagsService.stop(this);
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        finishAndRemoveTask();
-                    } else {
-                        finishAffinity();
-                    }
-                    new Handler(getMainLooper()).postDelayed(() -> System.exit(0), 5000);
-                    break;
+            if (item.getItemId() == R.id.exit) {
+                exitting = true;
+                ITag.closeApplication();
+                WayToday.getInstance().gpsUpdatesManager.stop();
+                ITagsService.stop(this);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    finishAndRemoveTask();
+                } else {
+                    finishAffinity();
+                }
+                new Handler(getMainLooper()).postDelayed(() -> System.exit(0), 5000);
             }
             return true;
         });
@@ -457,50 +509,47 @@ public class MainActivity extends FragmentActivity {
     }
 
     public void onWaytoday(@NonNull View sender) {
-        final SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(this);
-        boolean first = sp.getBoolean("wtfirst", true);
-        String tid = TrackIDJobService.getTid(this);
-        boolean on = Waytoday.tracker.isOn(this);
-        int freq = Waytoday.tracker.frequencyMs(this);
+        boolean first = WayTodayFirstPreference.get(this);
+        String tid = WayToday.getInstance().wtClient.getCurrentTrackerId();
+        boolean on = WayToday.getInstance().isTrackingOn() && !GPSPermissionManager.needPermissionRequest(this, true);
+        int freq = WayToday.getInstance().gpsUpdatesManager.getIntervalSec();
         final PopupMenu popupMenu = new PopupMenu(this, sender);
         popupMenu.inflate(R.menu.waytoday);
         popupMenu.getMenu().findItem(R.id.wt_about_first).setVisible(first);
         popupMenu.getMenu().findItem(R.id.wt_sec_1).setChecked(on && freq == 1);
-        popupMenu.getMenu().findItem(R.id.wt_min_5).setChecked(on && freq == 300000);
-        popupMenu.getMenu().findItem(R.id.wt_hour_1).setChecked(on && freq == 3600000);
+        popupMenu.getMenu().findItem(R.id.wt_min_5).setChecked(on && freq == 300);
+        popupMenu.getMenu().findItem(R.id.wt_hour_1).setChecked(on && freq == 3600);
         popupMenu.getMenu().findItem(R.id.wt_off).setVisible(on);
-        popupMenu.getMenu().findItem(R.id.wt_new_tid).setVisible(!("".equals(tid)));
+        popupMenu.getMenu().findItem(R.id.wt_new_tid).setVisible(!(tid.isEmpty()));
         popupMenu.getMenu().findItem(R.id.wt_about).setVisible(!first);
-        popupMenu.getMenu().findItem(R.id.wt_share).setVisible(!"".equals(tid));
-        popupMenu.getMenu().findItem(R.id.wt_map).setVisible(!"".equals(tid));
+        popupMenu.getMenu().findItem(R.id.wt_share).setVisible(!tid.isEmpty());
+        popupMenu.getMenu().findItem(R.id.wt_map).setVisible(!tid.isEmpty());
         popupMenu.setOnMenuItemClickListener(item -> {
             AlertDialog.Builder builder;
             int id = item.getItemId();
             if (id == R.id.wt_sec_1) {
-                Waytoday.tracker.setFrequencyMs(this, 1);
-                Waytoday.start(this);
+                WayToday.getInstance().gpsUpdatesManager.setIntervalSec(1);
                 ITagApplication.faWtOn1();
             } else if (id == R.id.wt_min_5) {
-                Waytoday.tracker.setFrequencyMs(this, 5 * 60 * 1000);
-                Waytoday.start(this);
+                WayToday.getInstance().gpsUpdatesManager.setIntervalSec(5 * 60);
                 ITagApplication.faWtOn5();
             } else if (id == R.id.wt_hour_1) {
-                Waytoday.tracker.setFrequencyMs(this, 60 * 60 * 1000);
-                Waytoday.start(this);
+                WayToday.getInstance().gpsUpdatesManager.setIntervalSec(60 * 60);
                 ITagApplication.faWtOn3600();
             } else if (id == R.id.wt_off) {
-                Waytoday.stop(this);
+                WayToday.getInstance().turnTrackingOff();
+                WayToday.getInstance().gpsUpdatesManager.stop();
                 ITagApplication.faWtOff();
             } else if (id == R.id.wt_new_tid) {
                 ITagApplication.faWtChangeID();
-                TrackIDJobService.enqueueRetrieveId(this);
+                WayToday.getInstance().enqueueTrackIdWorkRequest(this);
             } else if (id == R.id.wt_map) {
-                if (!"".equals(tid)) {
+                if (!tid.isEmpty()) {
                     startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://way.today/#" + tid)));
                 }
             } else if (id == R.id.wt_share) {
                 ITagApplication.faWtShare();
-                if (!"".equals(tid)) {
+                if (!tid.isEmpty()) {
                     String txt = String.format(getResources().getString(R.string.share_link), tid);
                     Intent sendIntent = new Intent();
                     sendIntent.setAction(Intent.ACTION_SEND);
@@ -512,7 +561,7 @@ public class MainActivity extends FragmentActivity {
                 }
             } else if (id == R.id.wt_about_first || id == R.id.wt_about) {
                 ITagApplication.faWtAbout();
-                sp.edit().putBoolean("wtfirst", false).apply();
+                WayTodayFirstPreference.set(this, false);
                 builder = new AlertDialog.Builder(this);
                 builder.setTitle(R.string.about_wt)
                         .setMessage(R.string.about_message)
@@ -536,8 +585,9 @@ public class MainActivity extends FragmentActivity {
                         .setMessage(R.string.disable_wt_msg)
                         .setPositiveButton(R.string.disable_wt_ok, (dialog, ignored) -> {
                             ITagApplication.faWtRemove();
+                            // TODO: why don not stop it?
                             // iTagsService.stopWayToday();
-                            sp.edit().putBoolean("wt_disabled0", true).apply();
+                            WayTodayDisabled0Preference.set(this, true);
                             final View v = findViewById(R.id.btn_waytoday);
                             if (v != null) {
                                 v.setVisibility(View.GONE);
@@ -548,6 +598,15 @@ public class MainActivity extends FragmentActivity {
                         });
                 // Create the AlertDialog object and return it
                 builder.create().show();
+            }
+            if (id == R.id.wt_sec_1 || id == R.id.wt_min_5 || id == R.id.wt_hour_1) {
+                if (GPSPermissionManager.needPermissionRequest(this, true)) {
+                    WayToday.getInstance().enableTrackingOn();
+                    GPSPermissionManager.requestPermissions(this, true);
+                } else {
+                    WayToday.getInstance().turnTrackingOn();
+                    checkNotificationPermission();
+                }
             }
             return true;
         });
@@ -563,25 +622,19 @@ public class MainActivity extends FragmentActivity {
         final PopupMenu popupMenu = new PopupMenu(this, sender);
         popupMenu.inflate(R.menu.color);
         popupMenu.setOnMenuItemClickListener(item -> {
-            switch (item.getItemId()) {
-                case R.id.black:
-                    ITag.store.setColor(itag.id(), TagColor.black);
-                    break;
-                case R.id.white:
-                    ITag.store.setColor(itag.id(), TagColor.white);
-                    break;
-                case R.id.red:
-                    ITag.store.setColor(itag.id(), TagColor.red);
-                    break;
-                case R.id.green:
-                    ITag.store.setColor(itag.id(), TagColor.green);
-                    break;
-                case R.id.gold:
-                    ITag.store.setColor(itag.id(), TagColor.gold);
-                    break;
-                case R.id.blue:
-                    ITag.store.setColor(itag.id(), TagColor.blue);
-                    break;
+            int id = item.getItemId();
+            if (id == R.id.black) {
+                ITag.store.setColor(itag.id(), TagColor.black);
+            } else if (id == R.id.white) {
+                ITag.store.setColor(itag.id(), TagColor.white);
+            } else if (id == R.id.red) {
+                ITag.store.setColor(itag.id(), TagColor.red);
+            } else if (id == R.id.green) {
+                ITag.store.setColor(itag.id(), TagColor.green);
+            } else if (id == R.id.gold) {
+                ITag.store.setColor(itag.id(), TagColor.gold);
+            } else if (id == R.id.blue) {
+                ITag.store.setColor(itag.id(), TagColor.blue);
             }
             ITagApplication.faColorITag();
             return true;
@@ -626,13 +679,10 @@ public class MainActivity extends FragmentActivity {
                 break;
             }
         }
-        Log.d("ingo", "ITag.ble.scanner().isScanning() " + ITag.ble.scanner().isScanning());
         if(shouldPassiveScannerBeOn && !ITag.ble.scanner().isScanning()){
-            Log.d("ingo", "scanner on");
             ITag.ble.scanner().start(false, 0, new String[]{});
             ITag.subscribePassiveScanner();
         } else if(!shouldPassiveScannerBeOn && ITag.ble.scanner().isScanning()){
-            Log.d("ingo", "scanner off");
             ITag.ble.scanner().stop();
             ITag.unsubscribePassiveScanner();
         }
@@ -672,17 +722,51 @@ public class MainActivity extends FragmentActivity {
                     setupContent();
                     break;
                 case REQUEST_ENABLE_LOCATION:
-                    Log.d("ingo", "onRequestPermissionsResult REQUEST_ENABLE_LOCATION");
-                    //onStartStopScan(null);
+                case REQUEST_ONSCAN:
+                    onStartStopScan(null);
                     setupContent();
                     break;
             }
         }
-        PermissionHandling.handleOnRequestPermissionsResult(this, requestCode, Waytoday.tracker);
+        GPSPermissionManager
+                .handleOnRequestPermissionsResult(
+                        requestCode,
+                        WayToday.getInstance().gpsUpdatesManager,
+                        WayToday.getInstance().isTrackingOn());
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            checkNotificationPermission();
+        }
     }
 
     public void onOpenBTSettings(View ignored) {
         Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-        startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+        try {
+            startActivity(enableBtIntent);
+        } catch (SecurityException e) {
+            Toast.makeText(MainActivity.this, e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void checkNotificationPermission() {
+        if (Build.VERSION.SDK_INT > 32) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                if (shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) {
+                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                            .setTitle("Notification Permission Required")
+                            .setMessage("The application will display an icon when running in the background so you can activate and stop it.")
+                            .setPositiveButton(
+                                    "OK",
+                                    (dialog, which) -> requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_CODE_NOTIFICATION_PERMISSION))
+                            .setNegativeButton(
+                                    "Cancel",
+                                    null)
+                            .create()
+                            .show();
+                } else {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQUEST_CODE_NOTIFICATION_PERMISSION);
+                }
+            }
+        }
     }
 }
