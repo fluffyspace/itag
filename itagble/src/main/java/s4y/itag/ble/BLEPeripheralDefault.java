@@ -92,6 +92,10 @@ class BLEPeripheralDefault implements BLEPeripheralInterace {
 
 
     @Override
+    public void connect() {
+        connect(false);
+    }
+
     public void connect(boolean auto) {
         if (debug) {
             Log.d(LT, "connect id=" + identifier());

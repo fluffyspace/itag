@@ -54,6 +54,7 @@ public class MainActivity extends FragmentActivity {
     private static final int REQUEST_CODE_NOTIFICATION_PERMISSION = 123;
     static public final int REQUEST_ENABLE_BT = 1;
     static public final int REQUEST_ONSCAN = 2;
+    static public final int REQUEST_ENABLE_LOCATION = 3;
     public ITagsService iTagsService;
     public static boolean sIsShown = false;
     private static final String LT = MainActivity.class.getName();
@@ -199,7 +200,7 @@ public class MainActivity extends FragmentActivity {
         disposableBag.dispose();
         sIsShown = false;
         if (!exitting) {
-            if (ITag.store.isDisconnectAlert()) {
+            if (ITag.store.isDisconnectAlertOn()) {
                 ITagsService.start(this);
             } else {
                 ITagsService.stop(this);
